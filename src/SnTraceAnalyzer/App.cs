@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Text;
 
 namespace SnTraceAnalyzer;
 
@@ -58,6 +59,8 @@ internal class App
             .ToArray();
         var trace = entries.Where(e => e.Trace != null).ToArray();
 
+        var firstTime = entries.First().Timestamp;
+
         // Copy operation duration from end-entries to start-entries
         CopyDurationToStartEntries(trace);
 
@@ -65,18 +68,24 @@ internal class App
         var sources = entries.Select(e => e.Source).Distinct().ToArray();
 
         // Write all log entries
-        WriteToFile("AllEntries.log", entries, true, true);
+        WriteToFile("AllEntries.log", entries, firstTime, true, true, false);
 
         // Write all trace entries
-        WriteToFile("Trace\\AllTrace.log", trace, true, true);
+        WriteToFile("Trace\\AllTrace.log", trace, firstTime, true, true, false);
 
         // Write log entries by source without SnTrace
         var log = entries.Where(e => e.Trace == null).ToArray();
         foreach (var source in sources)
             WriteToFile($@"Log\{source}.txt",
-                log.Where(l => l.Source == source).ToArray(), false, false);
+                log.Where(l => l.Source == source).ToArray(), firstTime, false, false, false);
 
-        // Write log entries by source with SnTrace
+        // Write log entries by progrm-flows with SnTrace and write long events
+        var longEntriesPath = Path.Combine(_outPath, "long-entries.txt");
+        var longEntriesDir = Path.GetDirectoryName(longEntriesPath);
+        if (!Directory.Exists(longEntriesDir))
+            Directory.CreateDirectory(longEntriesDir);
+        using var longEntriesWriter = new StreamWriter(longEntriesPath);
+
         var pfMin = trace.Min(e => e.Trace.ProgramFlowId);
         var pfMax = trace.Max(e => e.Trace.ProgramFlowId);
         var pfIds = new List<long>();
@@ -88,12 +97,162 @@ internal class App
                 if (flow.Length > 0)
                 {
                     pfIds.Add(pf);
-                    WriteToFile($@"Trace\{source}\Pf{pf}.txt", flow, true, false);
+                    var longEntries = WriteToFile($@"Trace\{source}\Pf{pf}.txt", flow, firstTime, true, false, true);
+                    if (longEntries.Length > 0)
+                    {
+                        //longEntriesWriter.WriteLine("Pf:" + pf);
+                        longEntriesWriter.Write(longEntries);
+                    }
                 }
             }
         }
 
         WriteGantt(trace, sources, pfIds);
+
+        WriteSaq(trace);
+
+        WriteBlockedThreads(trace);
+    }
+
+
+    private void WriteSaq(LogEntry[] trace)
+    {
+        var t0 = trace[0].Timestamp;
+        var items = new Dictionary<int, SaqItem>();
+        foreach (var logEntry in trace)
+        {
+            var entry = logEntry.Trace;
+            if (entry == null)
+                continue;
+            if (entry.Category != "SecurityQueue")
+                continue;
+            if(!entry.Message.StartsWith("SAQ: "))
+                continue;
+
+
+            if (entry.Message.Contains("arrived."))
+            {
+                // SAQ: SA2523 arrived. CreateSecurityEntityActivity
+                EnsureSaqItem(items, ParseItemId(entry.Message, 7)).Arrived = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("enqueued.") || entry.Message.Contains("enqueued from db."))
+            {
+                // SAQ: SA2523 enqueued.
+                EnsureSaqItem(items, ParseItemId(entry.Message, 7)).Enqueued = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("dequeued."))
+            {
+                // SAQ: SA2523 dequeued.
+                EnsureSaqItem(items, ParseItemId(entry.Message, 7)).Dequeued = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("EXECUTION START"))
+            {
+                var item = EnsureSaqItem(items, ParseItemId(entry.Message, 23));
+                if (entry.Status == "Start")
+                {
+                    // SAQ: EXECUTION START SA2523 .
+                    item.ExecutionStart = (entry.Time - t0).TotalSeconds;
+                }
+                else
+                {
+                    // SAQ: EXECUTION START SA2523 .
+                    item.ExecutionEnd = (entry.Time - t0).TotalSeconds;
+                }
+            }
+            else if (entry.Message.Contains("State after finishing"))
+            {
+                // SAQ: State after finishing SA2523: 2523()
+                EnsureSaqItem(items, ParseItemId(entry.Message, 29)).Finished = (entry.Time - t0).TotalSeconds;
+            }
+        }
+
+        var sorted = items.Values.OrderBy(x => x.Id);
+        var path = Path.Combine(_outPath, "saq.txt");
+        using var writer = new StreamWriter(path);
+        writer.WriteLine("Id\tArrived\tEnqueued\tDequeued\tExecutionStart\tExecutionEnd\tFinished");
+        foreach (var item in sorted)
+        {
+            writer.WriteLine($"{item.Id}\t{item.Arrived}\t{item.Enqueued - item.Arrived}\t{item.Dequeued - item.Enqueued}\t{item.ExecutionStart - item.Dequeued}\t{item.ExecutionEnd - item.ExecutionStart}\t{item.Finished - item.ExecutionEnd}");
+        }
+    }
+    private class SaqItem
+    {
+        public int Id;
+        public double Arrived;
+        public double Enqueued;
+        public double Dequeued;
+        public double ExecutionStart;
+        public double ExecutionEnd;
+        public double Finished;
+    }
+    private int ParseItemId(string msg, int index)
+    {
+        var p = index;
+        while (msg.Length > p && char.IsDigit(msg[p]))
+            p++;
+        var src = msg.Substring(index, p - index);
+        return int.Parse(src);
+    }
+    private SaqItem EnsureSaqItem(Dictionary<int, SaqItem> items, int id)
+    {
+        if (items.TryGetValue(id, out var item))
+            return item;
+        item = new SaqItem {Id = id};
+        items.Add(id, item);
+        return item;
+    }
+
+
+    private void WriteBlockedThreads(LogEntry[] trace)
+    {
+        var t0 = trace[0].Timestamp;
+        var items = new Dictionary<string, BlockedThreadItem>();
+        foreach (var logEntry in trace)
+        {
+            var entry = logEntry.Trace;
+            if (entry == null)
+                continue;
+            if (entry.Message.Length < 3)
+                continue;
+
+            var prefix = entry.Message.Substring(0, 3);
+            if (entry.Message.Contains(" blocks the "))
+            {
+                // SAQ: SA{0} blocks the T{1}
+                var idIndex = entry.Message.IndexOf(" blocks the ", StringComparison.Ordinal) + 13;
+                EnsureBlockedThreadItem(items, prefix + ParseItemId(entry.Message, idIndex)).Block =
+                    (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains(" waiting resource released "))
+            {
+                // SAQ: waiting resource released T{0}.
+                EnsureBlockedThreadItem(items, prefix + ParseItemId(entry.Message, 32)).Release =
+                    (entry.Time - t0).TotalSeconds;
+            }
+        }
+
+        var sorted = items.Values.OrderBy(x => x.Id);
+        var path = Path.Combine(_outPath, "blocked-threads.txt");
+        using var writer = new StreamWriter(path);
+        writer.WriteLine("Id\tblock\trelease");
+        foreach (var item in sorted)
+        {
+            writer.WriteLine($"{item.Id}\t{item.Block}\t{item.Release - item.Block}");
+        }
+    }
+    private class BlockedThreadItem
+    {
+        public string Id;
+        public double Block;
+        public double Release;
+    }
+    private BlockedThreadItem EnsureBlockedThreadItem(Dictionary<string, BlockedThreadItem> items, string id)
+    {
+        if (items.TryGetValue(id, out var item))
+            return item;
+        item = new BlockedThreadItem { Id = id };
+        items.Add(id, item);
+        return item;
     }
 
 
@@ -193,8 +352,11 @@ internal class App
         return s;
     }
 
-    private void WriteToFile(string relPath, LogEntry[] entries, bool withTrace, bool withSource)
+    private string WriteToFile(string relPath, LogEntry[] entries, DateTime firstTime, bool withTrace, bool withSource, bool collectLongEntries)
     {
+        var sb = new StringBuilder();
+        using var longEventWriter = new StringWriter(sb);
+
         var path = Path.Combine(_outPath, relPath);
         var dir = Path.GetDirectoryName(path);
         if (!Directory.Exists(dir))
@@ -205,20 +367,24 @@ internal class App
         if(!withTrace)
             writer.WriteLine("LineId\tTimestamp\tTimestamp2\tMessage");
         else if (withSource)
-            writer.WriteLine("LineId\tTimestamp\tTimestamp2\tdT\tSource\tTraceId\tCategory\tPf\tOp\tStatus\tDuration\tDuration2\tMessage");
+            writer.WriteLine("LineId\tTimestamp\tTimestamp2\tdT\tSource\tTraceId\tCategory\tThread\tPf\tOp\tStatus\tDuration\tDuration2\tMessage");
         else
-            writer.WriteLine("LineId\tTimestamp\tTimestamp2\tdT\tTraceId\tCategory\tOp\tStatus\tDuration\tDuration2\tMessage");
+            writer.WriteLine("LineId\tTimestamp\tTimestamp2\tdT\tTraceId\tCategory\tThread\tPf\tOp\tStatus\tDuration\tDuration2\tMessage");
 
         var lineId = 0;
         LogEntry lastEntry = null;
-        var firstTime = entries.FirstOrDefault()?.Timestamp ?? DateTime.MinValue;
         foreach (var logEntry in entries)
         {
             writer.Write($"{++lineId}\t");
             var dt = lastEntry == null ? TimeSpan.Zero : logEntry.Timestamp - lastEntry.Timestamp;
             WriteLogEntry(writer, firstTime, dt, logEntry, withSource);
+            if (collectLongEntries)
+                if (dt.TotalSeconds >= 1.0d)
+                    WriteLogEntry(longEventWriter, firstTime, dt, lastEntry, true);
             lastEntry = logEntry;
         }
+
+        return collectLongEntries ? sb.ToString() : null;
     }
     private void WriteLogEntry(TextWriter writer, DateTime firstTime, TimeSpan dT, LogEntry logEntry, bool withSource)
     {
@@ -237,11 +403,10 @@ internal class App
         else
         {
             var t = logEntry.Trace;
-            var pf = withSource ? "\t" + t.ProgramFlowId : string.Empty;
             var op = t.OpId == 0 ? "" : "Op:" + t.OpId;
             var duration = t.Status == "Start" || t.Status == "End" ? t.Duration.ToString("hh\\:mm\\:ss\\.fffff") : string.Empty;
             var duration2 = t.Status == "Start" || t.Status == "End" ? t.Duration.TotalSeconds.ToString("0.#####", CultureInfo.CurrentCulture) : string.Empty;
-            writer.Write($"{dT.ToString("hh\\:mm\\:ss\\.fffff")}{source}\t{t.LineId}\t{t.Category}{pf}\t{op}\t{t.Status}\t{duration}\t{duration2}\t{t.Message}");
+            writer.Write($"{dT.ToString("hh\\:mm\\:ss\\.fffff")}{source}\t{t.LineId}\t{t.Category}\tT:{t.ThreadId}\t{t.ProgramFlowId}\t{op}\t{t.Status}\t{duration}\t{duration2}\t{t.Message}");
         }
         writer.WriteLine();
     }
