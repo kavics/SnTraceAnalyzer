@@ -4,7 +4,7 @@ using System.Text;
 
 namespace SnTraceAnalyzer;
 
-internal enum Mode { GrayLog, Local }
+internal enum Mode { GrayLog, Local, SnTrace }
 internal enum Resolution { Normal, High }
 internal class App
 {
@@ -40,12 +40,20 @@ internal class App
     public void Run()
     {
         LogEntry[] entries;
-        if (_mode == Mode.GrayLog)
-            entries = GetLogEntries(ParseCsvFromGraylog(_logPath)).ToArray();
-        else if (_mode == Mode.Local)
-            entries = GetLogEntries(ParseLocalLog(_logPath)).ToArray();
-        else
-            throw new NotSupportedException("Unknown mode: " + _mode);
+        switch (_mode)
+        {
+            case Mode.GrayLog:
+                entries = GetLogEntries(ParseCsvFromGraylog(_logPath)).ToArray();
+                break;
+            case Mode.Local:
+                entries = GetLogEntries(ParseLocalLog(_logPath)).ToArray();
+                break;
+            case Mode.SnTrace:
+                entries = GetLogEntries(ParseDetailedLog(_logPath)).ToArray();
+                break;
+            default:
+                throw new NotSupportedException("Unknown mode: " + _mode);
+        }
 
         // Copy trace time to log time
         foreach (var entry in entries)
@@ -130,39 +138,44 @@ internal class App
                 continue;
 
 
-            if (entry.Message.Contains("arrived."))
+            if (entry.Message.Contains("activity arrived:"))
             {
-                // SAQ: SA2523 arrived. CreateSecurityEntityActivity
-                EnsureSaqItem(items, ParseItemId(entry.Message, 7)).Arrived = (entry.Time - t0).TotalSeconds;
+                // SAQ: activity arrived: SA2. CreateSecurityEntityActivity
+                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity arrived: SA".Length)).Arrived = (entry.Time - t0).TotalSeconds;
             }
-            else if (entry.Message.Contains("enqueued.") || entry.Message.Contains("enqueued from db."))
+            else if (entry.Message.Contains("activity enqueued:"))
             {
-                // SAQ: SA2523 enqueued.
-                EnsureSaqItem(items, ParseItemId(entry.Message, 7)).Enqueued = (entry.Time - t0).TotalSeconds;
+                // SAQ: activity enqueued: SA3.
+                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity enqueued: SA".Length)).Enqueued = (entry.Time - t0).TotalSeconds;
             }
-            else if (entry.Message.Contains("dequeued."))
+            else if (entry.Message.Contains("activity enqueued from db:"))
             {
-                // SAQ: SA2523 dequeued.
-                EnsureSaqItem(items, ParseItemId(entry.Message, 7)).Dequeued = (entry.Time - t0).TotalSeconds;
+                // SAQ: activity enqueued from db: SA2.
+                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity enqueued from db: SA".Length)).Enqueued = (entry.Time - t0).TotalSeconds;
             }
-            else if (entry.Message.Contains("EXECUTION START"))
+            else if (entry.Message.Contains("activity dequeued:"))
             {
-                var item = EnsureSaqItem(items, ParseItemId(entry.Message, 23));
+                // SAQ: activity dequeued: SA1.
+                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity dequeued: SA".Length)).Dequeued = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("EXECUTION"))
+            {
+                var item = EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: EXECUTION SA".Length));
                 if (entry.Status == "Start")
                 {
-                    // SAQ: EXECUTION START SA2523 .
+                    // SAQ: EXECUTION SA10 .
                     item.ExecutionStart = (entry.Time - t0).TotalSeconds;
                 }
                 else
                 {
-                    // SAQ: EXECUTION START SA2523 .
+                    // SAQ: EXECUTION SA10 .
                     item.ExecutionEnd = (entry.Time - t0).TotalSeconds;
                 }
             }
             else if (entry.Message.Contains("State after finishing"))
             {
-                // SAQ: State after finishing SA2523: 2523()
-                EnsureSaqItem(items, ParseItemId(entry.Message, 29)).Finished = (entry.Time - t0).TotalSeconds;
+                // SAQ: State after finishing SA1: 10(2,3,4,5,6,7,8,9)
+                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: State after finishing SA".Length)).Finished = (entry.Time - t0).TotalSeconds;
             }
         }
 
@@ -172,7 +185,13 @@ internal class App
         writer.WriteLine("Id\tArrived\tEnqueued\tDequeued\tExecutionStart\tExecutionEnd\tFinished");
         foreach (var item in sorted)
         {
-            writer.WriteLine($"{item.Id}\t{item.Arrived}\t{item.Enqueued - item.Arrived}\t{item.Dequeued - item.Enqueued}\t{item.ExecutionStart - item.Dequeued}\t{item.ExecutionEnd - item.ExecutionStart}\t{item.Finished - item.ExecutionEnd}");
+            writer.WriteLine($"{item.Id}\t" +
+                             $"{item.Arrived}\t" +
+                             $"{item.Enqueued - item.Arrived}\t" +
+                             $"{item.Dequeued - item.Enqueued}\t" +
+                             $"{item.ExecutionStart - item.Dequeued}\t" +
+                             $"{item.ExecutionEnd - item.ExecutionStart}\t" +
+                             $"{item.Finished - item.ExecutionEnd}");
         }
     }
     private class SaqItem
@@ -320,6 +339,21 @@ internal class App
             {
                 currentLogLine.FullMessage += "\n" + line;
             }
+        }
+    }
+
+    private IEnumerable<LogLine> ParseDetailedLog(string logPath)
+    {
+        using var reader = new StreamReader(logPath);
+        string? line;
+        while (null != (line = reader.ReadLine()))
+        {
+            if (line.StartsWith("----"))
+                continue;
+            if (line.StartsWith(">"))
+                line = line.Substring(1);
+            var fields = line.Split('\t');
+            yield return new LogLine {Timestamp = fields[1], Source = "detailedlog", FullMessage = line};
         }
     }
 
