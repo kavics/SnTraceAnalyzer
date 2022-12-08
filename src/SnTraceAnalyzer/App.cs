@@ -49,7 +49,10 @@ internal class App
                 entries = GetLogEntries(ParseLocalLog(_logPath)).ToArray();
                 break;
             case Mode.SnTrace:
-                entries = GetLogEntries(ParseDetailedLog(_logPath)).ToArray();
+                var logPath = _logPath;
+                if (Directory.Exists(logPath))
+                    logPath = Directory.GetFiles(logPath, "detailedlog*.log").MaxBy(x => x);
+                entries = GetLogEntries(ParseDetailedLog(logPath)).ToArray();
                 break;
             default:
                 throw new NotSupportedException("Unknown mode: " + _mode);
@@ -119,8 +122,84 @@ internal class App
 
         WriteSaq(trace);
 
+        WriteNewSaq(trace);
+
         WriteBlockedThreads(trace);
     }
+
+
+    private void WriteNewSaq(LogEntry[] trace)
+    {
+        var t0 = trace[0].Timestamp;
+        var items = new Dictionary<int, NewSaqItem>();
+        foreach (var logEntry in trace)
+        {
+            var entry = logEntry.Trace;
+            if (entry == null)
+                continue;
+            if (entry.Category != "Custom")
+                continue;
+
+
+            if (entry.Message.Contains("App: Business executes A") && entry.Status == "Start")
+            {
+                // Start \t App: Business executes A1
+                EnsureNewSaqItem(items, ParseItemId(entry.Message, "App: Business executes A".Length)).Start = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("ActivityQueue: Arrive A"))
+            {
+                // ActivityQueue: Arrive A1 
+                EnsureNewSaqItem(items, ParseItemId(entry.Message, "ActivityQueue: Arrive A".Length)).Arrived = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("Activity: ExecuteInternal A") && entry.Status == "Start")
+            {
+                // Start \t Activity: ExecuteInternal A1 (delay: 137) 
+                EnsureNewSaqItem(items, ParseItemId(entry.Message, "Activity: ExecuteInternal A".Length)).Executing = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("Activity: ExecuteInternal A") && entry.Status == "End")
+            {
+                // End \t Activity: ExecuteInternal A1 (delay: 137)
+                EnsureNewSaqItem(items, ParseItemId(entry.Message, "Activity: ExecuteInternal A".Length)).Finished = (entry.Time - t0).TotalSeconds;
+            }
+            else if (entry.Message.Contains("App: Business executes A") && entry.Status == "End")
+            {
+                // End \t App: Business executes A1
+                EnsureNewSaqItem(items, ParseItemId(entry.Message, "App: Business executes A".Length)).Released = (entry.Time - t0).TotalSeconds;
+            }
+        }
+
+        var sorted = items.Values.OrderBy(x => x.Id);
+        var path = Path.Combine(_outPath, "new-saq.txt");
+        using var writer = new StreamWriter(path);
+        writer.WriteLine("Id\tStart\tArrived\tWaiting\tExecution\tFinished");
+        foreach (var item in sorted)
+        {
+            writer.WriteLine($"{item.Id}\t" +
+                             $"{item.Start}\t" +
+                             $"{item.Arrived - item.Start}\t" +
+                             $"{item.Executing - item.Arrived}\t" +
+                             $"{item.Finished - item.Executing}\t" +
+                             $"{item.Released - item.Finished}");
+        }
+    }
+    private class NewSaqItem
+    {
+        public int Id;
+        public double Start;
+        public double Arrived;
+        public double Executing;
+        public double Finished;
+        public double Released;
+    }
+    private NewSaqItem EnsureNewSaqItem(Dictionary<int, NewSaqItem> items, int id)
+    {
+        if (items.TryGetValue(id, out var item))
+            return item;
+        item = new NewSaqItem {Id = id};
+        items.Add(id, item);
+        return item;
+    }
+
 
 
     private void WriteSaq(LogEntry[] trace)
