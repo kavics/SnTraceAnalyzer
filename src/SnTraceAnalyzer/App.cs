@@ -122,7 +122,7 @@ internal class App
 
         WriteSaq(trace);
 
-        WriteNewSaq(trace);
+        WriteNewSaq1(trace);
 
         WriteBlockedThreads(trace);
     }
@@ -182,21 +182,146 @@ internal class App
                              $"{item.Released - item.Finished}");
         }
     }
+    private void WriteNewSaq1(LogEntry[] trace)
+    {
+        double Dt(DateTime t, DateTime t0)
+        {
+            return Math.Max(0.0d, (t - t0).TotalSeconds);
+        }
+
+        var t0 = trace[0].Timestamp;
+        var items = new Dictionary<string, NewSaqItem>();
+        foreach (var logEntry in trace)
+        {
+            var entry = logEntry.Trace;
+            if (entry == null)
+                continue;
+            if (entry.Category != "Custom")
+                continue;
+
+
+            if (entry.Message.Contains("App: Business executes #SA") && entry.Status == "Start")
+            {
+                // Start \t App: Business executes A1
+                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "App: Business executes #SA".Length)).Start = Dt(entry.Time, t0);
+            }
+            else if (entry.Message.Contains("SAQ: Arrive #SA"))
+            {
+                // ActivityQueue: Arrive A1 
+                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "SAQ: Arrive #SA".Length)).Arrived = Dt(entry.Time, t0);
+            }
+            else if (entry.Message.Contains("SA: ExecuteInternal #SA") && entry.Status == "Start")
+            {
+                // Start \t Activity: ExecuteInternal A1 (delay: 137) 
+                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "SA: ExecuteInternal #SA".Length)).Executing = Dt(entry.Time, t0);
+            }
+            else if (entry.Message.Contains("SA: ExecuteInternal #SA") && entry.Status == "End")
+            {
+                // End \t Activity: ExecuteInternal A1 (delay: 137)
+                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "SA: ExecuteInternal #SA".Length)).Finished = Dt(entry.Time, t0);
+            }
+            else if (entry.Message.Contains("App: Business executes #SA") && entry.Status == "End")
+            {
+                // End \t App: Business executes A1
+                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "App: Business executes #SA".Length)).Released = Dt(entry.Time, t0);
+            }
+        }
+
+        var sorted = items.Values.OrderBy(x => x.Id);
+        var path = Path.Combine(_outPath, "new-saq.txt");
+        using (var writer = new StreamWriter(path))
+        {
+            writer.WriteLine("Id\tStart\tArrived\tWaiting\tExecution\tFinished");
+            foreach (var item in sorted)
+            {
+                if (item.Arrived == 0.0d) item.Arrived = item.Start;
+                if (item.Executing == 0.0d) item.Executing = item.Arrived;
+                if (item.Finished == 0.0d) item.Finished = item.Executing;
+                if (item.Released == 0.0d) item.Released = item.Finished;
+
+                writer.WriteLine($"{item.Id}\t" +
+                                 $"{item.Start}\t" +
+                                 $"{item.Arrived - item.Start}\t" +
+                                 $"{item.Executing - item.Arrived}\t" +
+                                 $"{item.Finished - item.Executing}\t" +
+                                 $"{item.Released - item.Finished}");
+            }
+        }
+
+        var timeLine = new TimeLine(
+            new (string state, string msg)[]
+            {
+                ("Start", "App: Business executes #SA"),
+                ("Start", "DataHandler: SaveActivity #SA"),
+                ("End", "DataHandler: SaveActivity #SA"),
+                ("", "SAQ: Arrive #SA"),
+                ("", "SAQ: Arrive from receiver #SA"),
+                ("", "SAQ: Arrive from database #SA"),
+                ("", "SAQT: execution ignored immediately: #SA"),
+                ("", "SA: Make dependency: #SA"),
+                ("", "SAQT: moved to executing list: #SA"),
+                ("", "SAQT: activity attached to another one: #SA"),
+                ("", "SAQT: activate dependent: #SA"),
+                ("", "SAQT: start execution: #SA"),
+                ("Start", "SA: ExecuteInternal #SA"),
+                ("End", "SA: ExecuteInternal #SA"),
+                ("", "SAQT: execution finished: #SA"),
+                ("", "SAQT: execution ignored (attachment): #SA"),
+                ("End", "App: Business executes #SA"),
+            });
+        timeLine.Parse(trace.Where(t => t.Trace != null).Select(t => t.Trace));
+        timeLine.OrderById();
+
+        var path1 = Path.Combine(_outPath, "saq-timeline.txt");
+        using var writer1 = new StreamWriter(path1);
+        writer1.WriteLine("Id\tT0\tStart\tSAQStart\tSave\tArrived\tFromNet\tFromDb\tFinishedImmed\tWaitForBlocker\t" +
+                          "WaitForExec\tWaitForSame\tWaitingForBlocker\tToExecList\tStartingExec\tEXECUTION\tReleasing\t" +
+                          "ReleasingAttachment\tReleased");
+
+        var tMax = trace[^1].Timestamp;
+        writer1.Write("000-xxx\t0");
+        for (int i = 0; i < 17; i++)
+            writer1.Write($"\t{(tMax-t0).TotalSeconds / 18}");
+        writer1.WriteLine();
+
+        timeLine.Write(writer1);
+    }
     private class NewSaqItem
     {
-        public int Id;
-        public double Start;
-        public double Arrived;
-        public double Executing;
-        public double Finished;
-        public double Released;
+        public string Id;
+        public double Start;               // Start    App: Business executes #SA99-61
+        public double SaveStart;           // Start    DataHandler: SaveActivity #SA99-61
+        public double SaveEnd;             // End      DataHandler: SaveActivity #SA99-61
+        public double Arrived;             //          SAQ: Arrive #SA99-61
+        public double ArrivedFromDb;       //          SAQ: Arrive from database #SA{activity.Key}
+        public double FinishedImmed;       //          SAQT: execution ignored immediately: #SA{activityToExecute.Key}
+        public double WaitForBlocker;      //          SA: Make dependency: #SA{Key} depends from SA{olderActivity.Key}.
+        public double WaitForExec;         //          SAQT: moved to executing list: #SA99-158
+        public double WaitForSame;         //          SAQT: activity attached to another one: #SA99-165 -> SA99-158
+        public double BlockerReleased;     //          SAQT: activate dependent: #SA{dependentActivity.Key}
+        public double StartExecution;      //          SAQT: start execution: #SA99-158
+        public double Executing;           // Start    SA: ExecuteInternal #SA99-158 (delay: 1)
+        public double Finished;            // End      SA: ExecuteInternal #SA99-158 (delay: 1)
+        public double Releasing;           //          SAQT: execution finished: #SA99-158
+        public double ReleasingAttachment; //          SAQT: execution ignored (attachment): #SA99-165
+        public double Released;            // End      App: Business executes #SA99-82
     }
     private NewSaqItem EnsureNewSaqItem(Dictionary<int, NewSaqItem> items, int id)
     {
         if (items.TryGetValue(id, out var item))
             return item;
-        item = new NewSaqItem {Id = id};
+        item = new NewSaqItem { Id = id.ToString() };
         items.Add(id, item);
+        return item;
+    }
+    private NewSaqItem EnsureNewSaqItem1(Dictionary<string, NewSaqItem> items, string key)
+    {
+        if (key[1] == '-')
+            key = '0' + key;
+        if (items.TryGetValue(key, out var item))
+            return item;
+        item = new NewSaqItem { Id = key };
+        items.Add(key, item);
         return item;
     }
 
@@ -290,6 +415,14 @@ internal class App
             p++;
         var src = msg.Substring(index, p - index);
         return int.Parse(src);
+    }
+    private string ParseItemKey(string msg, int index)
+    {
+        var src = msg.Substring(index);
+        var p = src.IndexOf(" ");
+        if (p > 0)
+            src = src.Substring(0, p);
+        return src;
     }
     private SaqItem EnsureSaqItem(Dictionary<int, SaqItem> items, int id)
     {
