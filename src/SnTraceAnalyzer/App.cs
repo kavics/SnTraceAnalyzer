@@ -278,10 +278,11 @@ internal class App
                           "WaitForExec\tWaitForSame\tWaitingForBlocker\tToExecList\tStartingExec\tEXECUTION\tReleasing\t" +
                           "ReleasingAttachment\tReleased");
 
-        var tMax = trace[^1].Timestamp;
+        var tMax = trace[^2].Timestamp;
+        var headTime = (tMax - t0).TotalSeconds / 17;
         writer1.Write("000-xxx\t0");
         for (int i = 0; i < 17; i++)
-            writer1.Write($"\t{(tMax-t0).TotalSeconds / 18}");
+            writer1.Write($"\t{headTime}");
         writer1.WriteLine();
 
         timeLine.Write(writer1);
@@ -561,6 +562,8 @@ internal class App
         while (null != (line = reader.ReadLine()))
         {
             if (line.StartsWith("----"))
+                continue;
+            if (line.StartsWith("Block size reaches the risky limit:"))
                 continue;
             if (line.StartsWith(">"))
                 line = line.Substring(1);
