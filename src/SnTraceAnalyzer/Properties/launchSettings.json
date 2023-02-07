@@ -4,7 +4,9 @@
       "commandName": "Project",
       //"commandLineArgs": "local D:\\projects\\_nlb\\20\\log-20221122.txt D:\\projects\\_nlb\\20\\out \"2022-11-22 02:17:49.000\" \"2022-11-22 02:18:10.000\" normal",
       //"commandLineArgs": "sntrace D:\\projects\\github\\kavics\\ActivityQueuePrototype\\src\\SecurityActivityQueuePrototypeTests\\bin\\Debug\\net6.0\\App_Data\\DetailedLog D:\\projects\\_nlb\\proto\\07\\02\\mod1-A"
-      "commandLineArgs": "local D:\\projects\\_nlb\\2023-01-26\\01\\log-20230126.txt D:\\projects\\_nlb\\2023-01-26\\01\\test \"2023-01-26 02:25:14\" \"2023-01-26 02:25:50\" normal"
+      //"commandLineArgs": "local D:\\projects\\_nlb\\2023-01-26\\01\\log-20230126.txt D:\\projects\\_nlb\\2023-01-26\\01\\test \"2023-01-26 02:25:14\" \"2023-01-26 02:25:50\" normal",
+      //"commandLineArgs": "sntrace D:\\projects\\_nlb\\2023-01-28\\OD_GET_Entity-1.txt D:\\projects\\_nlb\\2023-01-28\\test-1 \"2023-01-01 02:25:14\" \"2023-03-26 02:25:50\" normal",
+      "commandLineArgs": "local D:\\projects\\_nlb\\new\\03\\log-20230206.txt  D:\\projects\\_nlb\\new\\03\\dev \"2023-02-06 09:45:50\" \"2023-02-06 09:46:10\" normal"
     }
   }
 }

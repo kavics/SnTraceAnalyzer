@@ -249,25 +249,25 @@ internal class App
         }
 
         var timeLine = new TimeLine(
-            new (string state, string msg)[]
+            new (string state, string msgPrefix, string msgSuffix)[]
             {
-                ("Start", "App: Business executes #SA"),
-                ("Start", "DataHandler: SaveActivity #SA"),
-                ("End", "DataHandler: SaveActivity #SA"),
-                ("", "SAQ: Arrive #SA"),
-                ("", "SAQ: Arrive from receiver #SA"),
-                ("", "SAQ: Arrive from database #SA"),
-                ("", "SAQT: execution ignored immediately: #SA"),
-                ("", "SA: Make dependency: #SA"),
-                ("", "SAQT: moved to executing list: #SA"),
-                ("", "SAQT: activity attached to another one: #SA"),
-                ("", "SAQT: activate dependent: #SA"),
-                ("", "SAQT: start execution: #SA"),
-                ("Start", "SA: ExecuteInternal #SA"),
-                ("End", "SA: ExecuteInternal #SA"),
-                ("", "SAQT: execution finished: #SA"),
-                ("", "SAQT: execution ignored (attachment): #SA"),
-                ("End", "App: Business executes #SA"),
+                ("Start", "App: Business executes #SA", ""),
+                ("", "DataHandler: SaveActivity #SA", "START"),
+                ("", "DataHandler: SaveActivity #SA", "END"),
+                ("", "SAQ: Arrive #SA", ""),
+                ("", "SAQ: Arrive from receiver #SA", ""),
+                ("", "SAQ: Arrive from database #SA", ""),
+                ("", "SAQT: execution ignored immediately: #SA", ""),
+                ("", "SA: Make dependency: #SA", ""),
+                ("", "SAQT: moved to executing list: #SA", ""),
+                ("", "SAQT: activity attached to another one: #SA", ""),
+                ("", "SAQT: activate dependent: #SA", ""),
+                ("", "SAQT: start execution: #SA", ""),
+                ("Start", "SA: ExecuteInternal #SA", ""),
+                ("End", "SA: ExecuteInternal #SA", ""),
+                ("", "SAQT: execution finished: #SA", ""),
+                ("", "SAQT: execution ignored (attachment): #SA", ""),
+                ("End", "App: Business executes #SA", ""),
             });
         timeLine.Parse(trace.Where(t => t.Trace != null).Select(t => t.Trace));
         timeLine.OrderById();

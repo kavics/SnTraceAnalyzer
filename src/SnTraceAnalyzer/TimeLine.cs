@@ -13,11 +13,11 @@ internal class TimeLine
         public double[] Steps;
     }
 
-    private (string Status, string MsgPrefix)[] _steps;
+    private (string Status, string MsgPrefix, string MsgSuffix)[] _steps;
     //private List<(string Id, double[] Steps)> _rows = new();
     private List<Row> _rows = new();
 
-    public TimeLine((string Status, string MsgPrefix)[] steps)
+    public TimeLine((string Status, string MsgPrefix, string MsgSuffix)[] steps)
     {
         _steps = steps;
     }
@@ -55,6 +55,8 @@ internal class TimeLine
             var step = _steps[i];
             if (entry.Message.StartsWith(step.MsgPrefix))
             {
+                if (!string.IsNullOrEmpty(step.MsgSuffix) && !entry.Message.TrimEnd().EndsWith(step.MsgSuffix))
+                    continue;
                 if (string.IsNullOrEmpty(step.Status) || entry.Status == step.Status)
                 {
                     var id = ParseId(entry.Message, step.MsgPrefix);
