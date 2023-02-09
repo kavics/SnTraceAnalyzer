@@ -120,135 +120,73 @@ internal class App
 
         WriteGantt(trace, sources, pfIds);
 
-        WriteSaq(trace);
-
         WriteNewSaq1(trace);
+
+        WriteNodeSaveTimeLine(trace);
 
         WriteBlockedThreads(trace);
     }
 
 
-    private void WriteNewSaq(LogEntry[] trace)
-    {
-        var t0 = trace[0].Timestamp;
-        var items = new Dictionary<int, NewSaqItem>();
-        foreach (var logEntry in trace)
-        {
-            var entry = logEntry.Trace;
-            if (entry == null)
-                continue;
-            if (entry.Category != "Custom")
-                continue;
+    //private void WriteNewSaq(LogEntry[] trace)
+    //{
+    //    var t0 = trace[0].Timestamp;
+    //    var items = new Dictionary<int, NewSaqItem>();
+    //    foreach (var logEntry in trace)
+    //    {
+    //        var entry = logEntry.Trace;
+    //        if (entry == null)
+    //            continue;
+    //        if (entry.Category != "Custom")
+    //            continue;
 
 
-            if (entry.Message.Contains("App: Business executes A") && entry.Status == "Start")
-            {
-                // Start \t App: Business executes A1
-                EnsureNewSaqItem(items, ParseItemId(entry.Message, "App: Business executes A".Length)).Start = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("ActivityQueue: Arrive A"))
-            {
-                // ActivityQueue: Arrive A1 
-                EnsureNewSaqItem(items, ParseItemId(entry.Message, "ActivityQueue: Arrive A".Length)).Arrived = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("Activity: ExecuteInternal A") && entry.Status == "Start")
-            {
-                // Start \t Activity: ExecuteInternal A1 (delay: 137) 
-                EnsureNewSaqItem(items, ParseItemId(entry.Message, "Activity: ExecuteInternal A".Length)).Executing = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("Activity: ExecuteInternal A") && entry.Status == "End")
-            {
-                // End \t Activity: ExecuteInternal A1 (delay: 137)
-                EnsureNewSaqItem(items, ParseItemId(entry.Message, "Activity: ExecuteInternal A".Length)).Finished = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("App: Business executes A") && entry.Status == "End")
-            {
-                // End \t App: Business executes A1
-                EnsureNewSaqItem(items, ParseItemId(entry.Message, "App: Business executes A".Length)).Released = (entry.Time - t0).TotalSeconds;
-            }
-        }
+    //        if (entry.Message.Contains("App: Business executes A") && entry.Status == "Start")
+    //        {
+    //            // Start \t App: Business executes A1
+    //            EnsureNewSaqItem(items, ParseItemId(entry.Message, "App: Business executes A".Length)).Start = (entry.Time - t0).TotalSeconds;
+    //        }
+    //        else if (entry.Message.Contains("ActivityQueue: Arrive A"))
+    //        {
+    //            // ActivityQueue: Arrive A1 
+    //            EnsureNewSaqItem(items, ParseItemId(entry.Message, "ActivityQueue: Arrive A".Length)).Arrived = (entry.Time - t0).TotalSeconds;
+    //        }
+    //        else if (entry.Message.Contains("Activity: ExecuteInternal A") && entry.Status == "Start")
+    //        {
+    //            // Start \t Activity: ExecuteInternal A1 (delay: 137) 
+    //            EnsureNewSaqItem(items, ParseItemId(entry.Message, "Activity: ExecuteInternal A".Length)).Executing = (entry.Time - t0).TotalSeconds;
+    //        }
+    //        else if (entry.Message.Contains("Activity: ExecuteInternal A") && entry.Status == "End")
+    //        {
+    //            // End \t Activity: ExecuteInternal A1 (delay: 137)
+    //            EnsureNewSaqItem(items, ParseItemId(entry.Message, "Activity: ExecuteInternal A".Length)).Finished = (entry.Time - t0).TotalSeconds;
+    //        }
+    //        else if (entry.Message.Contains("App: Business executes A") && entry.Status == "End")
+    //        {
+    //            // End \t App: Business executes A1
+    //            EnsureNewSaqItem(items, ParseItemId(entry.Message, "App: Business executes A".Length)).Released = (entry.Time - t0).TotalSeconds;
+    //        }
+    //    }
 
-        var sorted = items.Values.OrderBy(x => x.Id);
-        var path = Path.Combine(_outPath, "new-saq.txt");
-        using var writer = new StreamWriter(path);
-        writer.WriteLine("Id\tStart\tArrived\tWaiting\tExecution\tFinished");
-        foreach (var item in sorted)
-        {
-            writer.WriteLine($"{item.Id}\t" +
-                             $"{item.Start}\t" +
-                             $"{item.Arrived - item.Start}\t" +
-                             $"{item.Executing - item.Arrived}\t" +
-                             $"{item.Finished - item.Executing}\t" +
-                             $"{item.Released - item.Finished}");
-        }
-    }
+    //    var sorted = items.Values.OrderBy(x => x.Id);
+    //    var path = Path.Combine(_outPath, "new-saq.txt");
+    //    using var writer = new StreamWriter(path);
+    //    writer.WriteLine("Id\tStart\tArrived\tWaiting\tExecution\tFinished");
+    //    foreach (var item in sorted)
+    //    {
+    //        writer.WriteLine($"{item.Id}\t" +
+    //                         $"{item.Start}\t" +
+    //                         $"{item.Arrived - item.Start}\t" +
+    //                         $"{item.Executing - item.Arrived}\t" +
+    //                         $"{item.Finished - item.Executing}\t" +
+    //                         $"{item.Released - item.Finished}");
+    //    }
+    //}
     private void WriteNewSaq1(LogEntry[] trace)
     {
-        double Dt(DateTime t, DateTime t0)
-        {
-            return Math.Max(0.0d, (t - t0).TotalSeconds);
-        }
-
         var t0 = trace[0].Timestamp;
-        var items = new Dictionary<string, NewSaqItem>();
-        foreach (var logEntry in trace)
-        {
-            var entry = logEntry.Trace;
-            if (entry == null)
-                continue;
-            if (entry.Category != "Custom")
-                continue;
 
-
-            if (entry.Message.Contains("App: Business executes #SA") && entry.Status == "Start")
-            {
-                // Start \t App: Business executes A1
-                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "App: Business executes #SA".Length)).Start = Dt(entry.Time, t0);
-            }
-            else if (entry.Message.Contains("SAQ: Arrive #SA"))
-            {
-                // ActivityQueue: Arrive A1 
-                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "SAQ: Arrive #SA".Length)).Arrived = Dt(entry.Time, t0);
-            }
-            else if (entry.Message.Contains("SA: ExecuteInternal #SA") && entry.Status == "Start")
-            {
-                // Start \t Activity: ExecuteInternal A1 (delay: 137) 
-                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "SA: ExecuteInternal #SA".Length)).Executing = Dt(entry.Time, t0);
-            }
-            else if (entry.Message.Contains("SA: ExecuteInternal #SA") && entry.Status == "End")
-            {
-                // End \t Activity: ExecuteInternal A1 (delay: 137)
-                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "SA: ExecuteInternal #SA".Length)).Finished = Dt(entry.Time, t0);
-            }
-            else if (entry.Message.Contains("App: Business executes #SA") && entry.Status == "End")
-            {
-                // End \t App: Business executes A1
-                EnsureNewSaqItem1(items, ParseItemKey(entry.Message, "App: Business executes #SA".Length)).Released = Dt(entry.Time, t0);
-            }
-        }
-
-        var sorted = items.Values.OrderBy(x => x.Id);
-        var path = Path.Combine(_outPath, "new-saq.txt");
-        using (var writer = new StreamWriter(path))
-        {
-            writer.WriteLine("Id\tStart\tArrived\tWaiting\tExecution\tFinished");
-            foreach (var item in sorted)
-            {
-                if (item.Arrived == 0.0d) item.Arrived = item.Start;
-                if (item.Executing == 0.0d) item.Executing = item.Arrived;
-                if (item.Finished == 0.0d) item.Finished = item.Executing;
-                if (item.Released == 0.0d) item.Released = item.Finished;
-
-                writer.WriteLine($"{item.Id}\t" +
-                                 $"{item.Start}\t" +
-                                 $"{item.Arrived - item.Start}\t" +
-                                 $"{item.Executing - item.Arrived}\t" +
-                                 $"{item.Finished - item.Executing}\t" +
-                                 $"{item.Released - item.Finished}");
-            }
-        }
-
-        var timeLine = new TimeLine(
+        var timeLine = new SaqTimeLine(
             new (string state, string msgPrefix, string msgSuffix)[]
             {
                 ("Start", "App: Business executes #SA", ""),
@@ -287,151 +225,95 @@ internal class App
 
         timeLine.Write(writer1);
     }
-    private class NewSaqItem
-    {
-        public string Id;
-        public double Start;               // Start    App: Business executes #SA99-61
-        public double SaveStart;           // Start    DataHandler: SaveActivity #SA99-61
-        public double SaveEnd;             // End      DataHandler: SaveActivity #SA99-61
-        public double Arrived;             //          SAQ: Arrive #SA99-61
-        public double ArrivedFromDb;       //          SAQ: Arrive from database #SA{activity.Key}
-        public double FinishedImmed;       //          SAQT: execution ignored immediately: #SA{activityToExecute.Key}
-        public double WaitForBlocker;      //          SA: Make dependency: #SA{Key} depends from SA{olderActivity.Key}.
-        public double WaitForExec;         //          SAQT: moved to executing list: #SA99-158
-        public double WaitForSame;         //          SAQT: activity attached to another one: #SA99-165 -> SA99-158
-        public double BlockerReleased;     //          SAQT: activate dependent: #SA{dependentActivity.Key}
-        public double StartExecution;      //          SAQT: start execution: #SA99-158
-        public double Executing;           // Start    SA: ExecuteInternal #SA99-158 (delay: 1)
-        public double Finished;            // End      SA: ExecuteInternal #SA99-158 (delay: 1)
-        public double Releasing;           //          SAQT: execution finished: #SA99-158
-        public double ReleasingAttachment; //          SAQT: execution ignored (attachment): #SA99-165
-        public double Released;            // End      App: Business executes #SA99-82
-    }
-    private NewSaqItem EnsureNewSaqItem(Dictionary<int, NewSaqItem> items, int id)
-    {
-        if (items.TryGetValue(id, out var item))
-            return item;
-        item = new NewSaqItem { Id = id.ToString() };
-        items.Add(id, item);
-        return item;
-    }
-    private NewSaqItem EnsureNewSaqItem1(Dictionary<string, NewSaqItem> items, string key)
-    {
-        if (key[1] == '-')
-            key = '0' + key;
-        if (items.TryGetValue(key, out var item))
-            return item;
-        item = new NewSaqItem { Id = key };
-        items.Add(key, item);
-        return item;
-    }
+    //private class NewSaqItem
+    //{
+    //    public string Id;
+    //    public double Start;               // Start    App: Business executes #SA99-61
+    //    public double SaveStart;           // Start    DataHandler: SaveActivity #SA99-61
+    //    public double SaveEnd;             // End      DataHandler: SaveActivity #SA99-61
+    //    public double Arrived;             //          SAQ: Arrive #SA99-61
+    //    public double ArrivedFromDb;       //          SAQ: Arrive from database #SA{activity.Key}
+    //    public double FinishedImmed;       //          SAQT: execution ignored immediately: #SA{activityToExecute.Key}
+    //    public double WaitForBlocker;      //          SA: Make dependency: #SA{Key} depends from SA{olderActivity.Key}.
+    //    public double WaitForExec;         //          SAQT: moved to executing list: #SA99-158
+    //    public double WaitForSame;         //          SAQT: activity attached to another one: #SA99-165 -> SA99-158
+    //    public double BlockerReleased;     //          SAQT: activate dependent: #SA{dependentActivity.Key}
+    //    public double StartExecution;      //          SAQT: start execution: #SA99-158
+    //    public double Executing;           // Start    SA: ExecuteInternal #SA99-158 (delay: 1)
+    //    public double Finished;            // End      SA: ExecuteInternal #SA99-158 (delay: 1)
+    //    public double Releasing;           //          SAQT: execution finished: #SA99-158
+    //    public double ReleasingAttachment; //          SAQT: execution ignored (attachment): #SA99-165
+    //    public double Released;            // End      App: Business executes #SA99-82
+    //}
+    //private NewSaqItem EnsureNewSaqItem(Dictionary<int, NewSaqItem> items, int id)
+    //{
+    //    if (items.TryGetValue(id, out var item))
+    //        return item;
+    //    item = new NewSaqItem { Id = id.ToString() };
+    //    items.Add(id, item);
+    //    return item;
+    //}
+    //private NewSaqItem EnsureNewSaqItem1(Dictionary<string, NewSaqItem> items, string key)
+    //{
+    //    if (key[1] == '-')
+    //        key = '0' + key;
+    //    if (items.TryGetValue(key, out var item))
+    //        return item;
+    //    item = new NewSaqItem { Id = key };
+    //    items.Add(key, item);
+    //    return item;
+    //}
 
-
-
-    private void WriteSaq(LogEntry[] trace)
+    private void WriteNodeSaveTimeLine(LogEntry[] trace)
     {
         var t0 = trace[0].Timestamp;
-        var items = new Dictionary<int, SaqItem>();
-        foreach (var logEntry in trace)
+        var steps = new[]
         {
-            var entry = logEntry.Trace;
-            if (entry == null)
-                continue;
-            if (entry.Category != "SecurityQueue")
-                continue;
-            if(!entry.Message.StartsWith("SAQ: "))
-                continue;
+            new NodeSaveTimeLine.Step {Status = "Start", MsgPrefix = "POST https://"},
+            new NodeSaveTimeLine.Step {Status = "Start", MsgPrefix = "NODE.SAVE", ModifyRow = (entry, row) => { row.Path = GetPath(entry); }},
+            new NodeSaveTimeLine.Step {Status = "Start", MsgPrefix = "SaveNodeData"},
+            new NodeSaveTimeLine.Step {Status = "Start", MsgPrefix = "Indexing node"},
+            new NodeSaveTimeLine.Step {Status = "End", MsgPrefix = "Indexing node"},
+            new NodeSaveTimeLine.Step {Status = "End", MsgPrefix = "SaveNodeData"},
+            new NodeSaveTimeLine.Step {Status = "Start", MsgPrefix = "CreateSecurityEntity"},
+            new NodeSaveTimeLine.Step {Status = "End", MsgPrefix = "CreateSecurityEntity"},
+            new NodeSaveTimeLine.Step {Status = "End", MsgPrefix = "NODE.SAVE"},
+            new NodeSaveTimeLine.Step {Status = "End", MsgPrefix = "POST https://"},
+        };
+        var timeLine = new NodeSaveTimeLine(steps);
 
+        timeLine.Parse(trace.Where(t => t.Trace != null).Select(t => t.Trace));
+        timeLine.OrderById();
 
-            if (entry.Message.Contains("activity arrived:"))
-            {
-                // SAQ: activity arrived: SA2. CreateSecurityEntityActivity
-                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity arrived: SA".Length)).Arrived = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("activity enqueued:"))
-            {
-                // SAQ: activity enqueued: SA3.
-                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity enqueued: SA".Length)).Enqueued = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("activity enqueued from db:"))
-            {
-                // SAQ: activity enqueued from db: SA2.
-                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity enqueued from db: SA".Length)).Enqueued = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("activity dequeued:"))
-            {
-                // SAQ: activity dequeued: SA1.
-                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: activity dequeued: SA".Length)).Dequeued = (entry.Time - t0).TotalSeconds;
-            }
-            else if (entry.Message.Contains("EXECUTION"))
-            {
-                var item = EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: EXECUTION SA".Length));
-                if (entry.Status == "Start")
-                {
-                    // SAQ: EXECUTION SA10 .
-                    item.ExecutionStart = (entry.Time - t0).TotalSeconds;
-                }
-                else
-                {
-                    // SAQ: EXECUTION SA10 .
-                    item.ExecutionEnd = (entry.Time - t0).TotalSeconds;
-                }
-            }
-            else if (entry.Message.Contains("State after finishing"))
-            {
-                // SAQ: State after finishing SA1: 10(2,3,4,5,6,7,8,9)
-                EnsureSaqItem(items, ParseItemId(entry.Message, "SAQ: State after finishing SA".Length)).Finished = (entry.Time - t0).TotalSeconds;
-            }
-        }
-
-        var sorted = items.Values.OrderBy(x => x.Id);
-        var path = Path.Combine(_outPath, "saq.txt");
+        var path = Path.Combine(_outPath, "nodesave-timeline.txt");
         using var writer = new StreamWriter(path);
-        writer.WriteLine("Id\tArrived\tEnqueued\tDequeued\tExecutionStart\tExecutionEnd\tFinished");
-        foreach (var item in sorted)
-        {
-            writer.WriteLine($"{item.Id}\t" +
-                             $"{item.Arrived}\t" +
-                             $"{item.Enqueued - item.Arrived}\t" +
-                             $"{item.Dequeued - item.Enqueued}\t" +
-                             $"{item.ExecutionStart - item.Dequeued}\t" +
-                             $"{item.ExecutionEnd - item.ExecutionStart}\t" +
-                             $"{item.Finished - item.ExecutionEnd}");
-        }
+        writer.WriteLine("Pf\tT0\tStart\tSaveStart\tSaveToDb\tIndexing\tIndexingEnd\tSaveEnd\tSA-Start\tSA-End\t" +
+                          "SaveEnd2\tWebEnd");
+
+        var tMax = trace[^2].Timestamp;
+        var headTime = (tMax - t0).TotalSeconds / steps.Length;
+        writer.Write("000-xxx\t0");
+        for (int i = 0; i < steps.Length; i++)
+            writer.Write($"\t{headTime}");
+        writer.WriteLine();
+
+        timeLine.Write(writer);
     }
-    private class SaqItem
+    private string? GetPath(TraceEntry entry)
     {
-        public int Id;
-        public double Arrived;
-        public double Enqueued;
-        public double Dequeued;
-        public double ExecutionStart;
-        public double ExecutionEnd;
-        public double Finished;
-    }
-    private int ParseItemId(string msg, int index)
-    {
-        var p = index;
-        while (msg.Length > p && char.IsDigit(msg[p]))
-            p++;
-        var src = msg.Substring(index, p - index);
-        return int.Parse(src);
-    }
-    private string ParseItemKey(string msg, int index)
-    {
-        var src = msg.Substring(index);
-        var p = src.IndexOf(" ");
-        if (p > 0)
-            src = src.Substring(0, p);
-        return src;
-    }
-    private SaqItem EnsureSaqItem(Dictionary<int, SaqItem> items, int id)
-    {
-        if (items.TryGetValue(id, out var item))
-            return item;
-        item = new SaqItem {Id = id};
-        items.Add(id, item);
-        return item;
+        // NODE.SAVE Id: 0, VersionId: 0, Version: V1.0.A, Name: ex3, ParentPath: /Root/Content/SnRM1
+        var msg = entry.Message;
+        var pName = msg.IndexOf(", Name:") + 7;
+        if (pName == -1)
+            return null;
+        var pPath = msg.IndexOf(", ParentPath:") + 13;
+        if (pPath == -1)
+            return null;
+        var nameLength = msg.IndexOf(",", pName+1) - pName;
+        if (nameLength < 0)
+            return null;
+        var path = $"{msg.Substring(pPath).Trim()}/{msg.Substring(pName, nameLength).Trim()}";
+        return path;
     }
 
 
@@ -472,6 +354,14 @@ internal class App
             writer.WriteLine($"{item.Id}\t{item.Block}\t{item.Release - item.Block}");
         }
     }
+    private int ParseItemId(string msg, int index)
+    {
+        var p = index;
+        while (msg.Length > p && char.IsDigit(msg[p]))
+            p++;
+        var src = msg.Substring(index, p - index);
+        return int.Parse(src);
+    }
     private class BlockedThreadItem
     {
         public string Id;
@@ -501,6 +391,11 @@ internal class App
             var c = log[p++];
             if (c == '"')
             {
+                if (p < log.Length && log[p] == '"')
+                {
+                    p++;
+                    continue;
+                }
                 switch (++quotIndex)
                 {
                     case 0: currentLogLine = new LogLine(); lastP = p; break;
@@ -598,6 +493,7 @@ internal class App
     private string GetField(string log, int p0, int p1)
     {
         var s = log.Substring(p0, p1 - p0 - 1);
+        s = s.Replace("\"\"", "\"");
         return s;
     }
 
