@@ -3,7 +3,7 @@ using System.Globalization;
 
 namespace SnTraceAnalyzer;
 
-internal class TimeLine
+internal class SaqTimeLine
 {
     private class Row
     {
@@ -17,7 +17,7 @@ internal class TimeLine
     //private List<(string Id, double[] Steps)> _rows = new();
     private List<Row> _rows = new();
 
-    public TimeLine((string Status, string MsgPrefix, string MsgSuffix)[] steps)
+    public SaqTimeLine((string Status, string MsgPrefix, string MsgSuffix)[] steps)
     {
         _steps = steps;
     }
