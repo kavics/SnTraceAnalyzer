@@ -90,9 +90,11 @@ internal class TraceEntry
         if (oneLine.StartsWith("--") || oneLine.StartsWith("MaxPdiff:", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var data = oneLine.Split('\t');
-        if (data.Length < (int)Field.Message)
+        var data = new List<string>(oneLine.Split('\t'));
+        if (data.Count < (int)Field.ProgramFlowId)
             return null;
+        while (data.Count < (int)Field.Message)
+            data.Add(string.Empty);
 
         return new TraceEntry
         {
