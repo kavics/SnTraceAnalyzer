@@ -4,7 +4,7 @@ using System.Text;
 
 namespace SnTraceAnalyzer;
 
-internal enum Mode { GrayLog, Local, SnTrace }
+internal enum Mode { GrayLog, Local, MsTest, SnTrace }
 internal enum Resolution { Normal, High }
 internal class App
 {
@@ -47,6 +47,9 @@ internal class App
                 break;
             case Mode.Local:
                 entries = GetLogEntries(ParseLocalLog(_logPath)).ToArray();
+                break;
+            case Mode.MsTest:
+                entries = GetLogEntries(ParseMsTestLog(_logPath)).ToArray();
                 break;
             case Mode.SnTrace:
                 var logPath = _logPath;
@@ -446,6 +449,30 @@ internal class App
             else
             {
                 currentLogLine.FullMessage += "\n" + line;
+            }
+        }
+    }
+
+    private IEnumerable<LogLine> ParseMsTestLog(string logPath)
+    {
+        using var reader = new StreamReader(logPath);
+        string? line;
+        while (null != (line = reader.ReadLine()))
+        {
+            // SnLog: Message: AccessProvider configured: ...
+            // SnTrace: 21089	2023-02-17 01:32:09.50966	Event	A:c446be46...
+            // SnTrace: System: ExclusiveLock guard SenseNet.PatchMana...
+
+            if (line.StartsWith("SnLog:"))
+                yield return new LogLine { Timestamp = "1999-01-01", Source = "mstest", FullMessage = line.Substring(7) };
+            if (line.StartsWith("SnTrace:") && char.IsDigit(line[9]))
+            {
+                var p = line.IndexOf('\t');
+                var p1 = line.IndexOf('\t', p + 1);
+                if (p < 0 || p1 < p)
+                    continue;
+                var timeStr = line.Substring(p + 1, p1 - p - 1);
+                yield return new LogLine { Timestamp = timeStr, Source = "mstest", FullMessage = line.Substring(9) };
             }
         }
     }
